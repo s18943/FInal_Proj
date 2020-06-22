@@ -25,7 +25,7 @@ namespace AdvertApi.Controllers
 
         // GET: api/Campaigns
         [HttpGet]
-        public IActionResult GetCampaign()
+        public IActionResult GetCampaigns()
         {
             return  Ok(_dbService.GetCampaigns());
         }
@@ -42,7 +42,7 @@ namespace AdvertApi.Controllers
 
                 return Created("GetCampaign", request);
             }
-            catch (NoBuildingsException exc)
+            catch (NotEnoughBuildingsException exc)
             {
                 return NotFound(exc);
             }

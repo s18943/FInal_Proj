@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace AdvertApi.DTOs.Responses
 {
-    public class GetCampaignsResponse
+    public class CampaignsResponse
     {
         public Campaign Campaign { get; set; }
         public Client Client { get; set; }

@@ -33,11 +33,7 @@ namespace AdvertApi.Controllers
             {
                  return Ok(_dbService.LoginClient(request));
             }
-            catch (AuthLoginException exc)
-            {
-                return BadRequest(exc);
-            }
-            catch (AuthPasswordException exc)
+            catch (AuthenticationException exc)
             {
                 return BadRequest(exc);
             }

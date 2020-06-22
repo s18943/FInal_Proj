@@ -2,6 +2,7 @@
 using AdvertApi.DTOs.Responses;
 using AdvertApi.Exceptions;
 using AdvertApi.Models;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using System;
@@ -27,80 +28,109 @@ namespace AdvertApi.Services
         public AddClientResponse AddClient(AddClientRequest request)
         {
             if (_context.Client.Where(c => c.Login.Equals(request.Login)).FirstOrDefault() != null)
-                throw new LoginAlreadyExistsException("You can't login take");
-            Client client = new Client { FirstName = request.FirstName, LastName = request.LastName, Email = request.Email, Phone = request.Phone, Login = request.Login, Password = BCrypt.Net.BCrypt.HashPassword(request.Password, BCrypt.Net.SaltRevision.Revision2) };
+                throw new LoginAlreadyExistsException("You can't take this login");
+
+            Client client = new Client { 
+                FirstName = request.FirstName,
+                LastName = request.LastName, 
+                Email = request.Email, 
+                Phone = request.Phone, 
+                Login = request.Login, 
+                Password = BCrypt.Net.BCrypt.HashPassword(request.Password, BCrypt.Net.SaltRevision.Revision2) 
+            };
+
+            AddClientResponse response = new AddClientResponse { FirstName = client.FirstName,
+                LastName = client.LastName, 
+                Email = client.Email,
+                Phone = client.Phone,
+                Login = client.Login
+            };
+
             _context.Client.Add(client);
             _context.SaveChanges();
-            AddClientResponse resp = new AddClientResponse { FirstName = client.FirstName, LastName = client.LastName, Email = client.Email, Phone = client.Phone, Login = client.Login };
-            return resp;
+
+            return response;
         }
 
-        public ICollection<GetCampaignsResponse> GetCampaigns()
+        public ICollection<CampaignsResponse> GetCampaigns()
         {
-            List<GetCampaignsResponse> resp = new List<GetCampaignsResponse>();
+            List<CampaignsResponse> resp = new List<CampaignsResponse>();
 
             var campaigns = _context.Campaign
-                .Join(_context.Client, ca => ca.IdClient, cl => cl.IdClient, (ca, cl) =>
-                      new GetCampaignsResponse { Campaign = ca, Client = cl })
+                .Include(cam => cam.IdClientNavigation)
+                .Select(c => new CampaignsResponse
+                {
+                    Campaign = c,
+                    Client = c.IdClientNavigation
+                })
                 .OrderByDescending(c => c.Campaign.StartDate).ToList();
             return campaigns;
         }
 
         public LoginClientResponse LoginClient(LoginClientRequest request)
         {
-            var userExists = _context.Client.Where(c => c.Login.Equals(request.Login)).FirstOrDefault();
-            if (userExists == null)
-                throw new AuthLoginException("Incorrect login");
-            if (!BCrypt.Net.BCrypt.Verify(request.Password, userExists.Password))
-                throw new AuthPasswordException("Incorrect password");
+            var user = _context.Client.Where(c => c.Login.Equals(request.Login)).FirstOrDefault();
+            if (user == null) throw new AuthenticationException("Incorrect login");
+            if (!BCrypt.Net.BCrypt.Verify(request.Password, user.Password))throw new AuthenticationException("Incorrect password");
 
-            Guid refreshToken = Guid.NewGuid();
-            userExists.RefreshToken = refreshToken.ToString();
-            _context.Update(userExists);
+            string Token = Guid.NewGuid().ToString();
+            user.RefreshToken = Token;
+            _context.Update(user);
             var claims = new[]
             {
-                new Claim(ClaimTypes.NameIdentifier, userExists.Login),
-                new Claim(ClaimTypes.Name, userExists.FirstName+" "+userExists.LastName),
+                new Claim(ClaimTypes.NameIdentifier, user.Login),
+                new Claim(ClaimTypes.Name, user.FirstName+" "+user.LastName),
                 new Claim(ClaimTypes.Role, "client")
             };
 
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Configuration["S2ecretK1ey"]));
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-
-            var token = new JwtSecurityToken
+            var JwtToken = new JwtSecurityToken
             (
                 issuer: "s18943",
                 audience: "Clients",
                 claims: claims,
                 expires: DateTime.Now.AddMinutes(60),
-                signingCredentials: creds
+                signingCredentials: new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Configuration["S2ecretK1ey"])),
+                SecurityAlgorithms.HmacSha256)
             );
             _context.SaveChanges();
             return new LoginClientResponse
             {
-                AccessToken = new JwtSecurityTokenHandler().WriteToken(token),
-                RefreshToken = refreshToken.ToString()
+                AccessToken = new JwtSecurityTokenHandler().WriteToken(JwtToken),
+                RefreshToken = Token
             };
         }
 
         public NewCampaignResponse NewCampaign(NewCampaignRequest request)
         {
             if (_context.Building.Count() < 2)
-                throw new NoBuildingsException("No buildings in the database");
+                throw new NotEnoughBuildingsException("Not enough buildings");
 
-            var B1 = _context.Building.Where(b => b.IdBuilding.Equals(request.FromIdBuilding)).FirstOrDefault();
-            var B2 = _context.Building.Where(b => b.IdBuilding.Equals(request.ToIdBuilding)).FirstOrDefault();
+            var building1 = _context.Building
+                .Where(b => b.IdBuilding.Equals(request.FromIdBuilding))
+                .FirstOrDefault();
+            var building2 = _context.Building
+                .Where(b => b.IdBuilding.Equals(request.ToIdBuilding))
+                .FirstOrDefault();
 
-            if (!B1.Street.Equals(B2.Street))
-                throw new BuildingsTooFarException("The buildings are not next to each other");
+            if (!building1.Street.Equals(building2.Street))
+                throw new BuildingsTooFarException("Buildings are too far");
 
-            Campaign campaign = new Campaign { IdClient = request.IdClient, StartDate = request.StartDate, EndDate = request.EndDate, PricePerSquareMeter = request.PricePerSquareMeter, FromIdBuilding = request.FromIdBuilding, ToIdBuilding = request.ToIdBuilding };
-            _context.Campaign.Add(campaign);
-            _context.SaveChanges();
-            var buildings = _context.Building.Where(b => b.StreetNumber >= B1.StreetNumber && b.StreetNumber <= B2.StreetNumber).OrderBy(b => b.StreetNumber).ToList();
+            Campaign campaign = new Campaign 
+            { 
+                IdClient = request.IdClient, 
+                StartDate = request.StartDate, 
+                EndDate = request.EndDate, 
+                PricePerSquareMeter = request.PricePerSquareMeter, 
+                FromIdBuilding = request.FromIdBuilding, 
+                ToIdBuilding = request.ToIdBuilding 
+            };
+            var buildings = _context.Building
+                .Where(b => b.StreetNumber >= building1.StreetNumber && b.StreetNumber <= building2.StreetNumber)
+                .OrderBy(b => b.StreetNumber).ToList();
 
             List<Banner> banners = _service.calculateArea(buildings, campaign, request.PricePerSquareMeter);
 
+            _context.Campaign.Add(campaign);
             _context.Banner.AddRange(banners.First(), banners.Last());
             _context.SaveChanges();
 
@@ -109,7 +139,9 @@ namespace AdvertApi.Services
 
         public TokenUpdateResponse UpdateToken(TokenUpdateRequest request)
         {
-            var client = _context.Client.Where(c => c.RefreshToken.Equals(request.RefreshToken)).FirstOrDefault();
+            var client = _context.Client
+                .Where(c => c.RefreshToken.Equals(request.RefreshToken))
+                .FirstOrDefault();
             if (client == null)
                 throw new RefreshTokenIncorrectException("Refresh token incorrect");
 

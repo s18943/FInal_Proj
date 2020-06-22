@@ -14,7 +14,7 @@ namespace AdvertApi.Services
         public AddClientResponse AddClient(AddClientRequest request);
         public LoginClientResponse LoginClient(LoginClientRequest request);
         public TokenUpdateResponse UpdateToken(TokenUpdateRequest request);
-        public ICollection<GetCampaignsResponse> GetCampaigns();
+        public ICollection<CampaignsResponse> GetCampaigns();
         public NewCampaignResponse NewCampaign(NewCampaignRequest request);
     }
 }
